@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Position } from '../types/game';
 
 interface ConnectingLineProps {
@@ -8,37 +8,51 @@ interface ConnectingLineProps {
 }
 
 export function ConnectingLine({ positions, cellSize, gap }: ConnectingLineProps) {
-  if (positions.length < 2) return null;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const svgWidth = 8 * (cellSize + gap) - gap;
-  const svgHeight = 6 * (cellSize + gap) - gap;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || positions.length < 2) return;
 
-  const getAdjustedPosition = (pos: Position) => ({
-    x: pos.col * (cellSize + gap) + cellSize / 2,
-    y: pos.row * (cellSize + gap) + cellSize / 2,
-  });
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-  const points = positions.map(getAdjustedPosition)
-    .map(pos => `${pos.x},${pos.y}`)
-    .join(' ');
+    // Clear previous lines
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Set line style
+    ctx.strokeStyle = '#3B82F6'; // blue-500
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+
+    // Start path
+    ctx.beginPath();
+
+    // Calculate cell center offset
+    const centerOffset = cellSize / 2;
+
+    positions.forEach((pos, index) => {
+      const x = pos.col * (cellSize + gap) + centerOffset;
+      const y = pos.row * (cellSize + gap) + centerOffset;
+
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+
+    ctx.stroke();
+  }, [positions, cellSize, gap]);
 
   return (
-    <svg
-      className="absolute top-4 left-4 pointer-events-none"
-      width={svgWidth}
-      height={svgHeight}
-      style={{ zIndex: 10 }}
-    >
-      <polyline
-        points={points}
-        fill="none"
-        stroke="#3B82F6"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeDasharray="0"
-        className="transition-all duration-200"
-      />
-    </svg>
+    <canvas
+      ref={canvasRef}
+      className="absolute top-0 left-0 w-full h-full pointer-events-none"
+      style={{
+        width: '100%',
+        height: '100%'
+      }}
+    />
   );
 }

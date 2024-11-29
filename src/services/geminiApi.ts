@@ -1,7 +1,7 @@
 import { Theme } from '../types/game';
 
-const API_KEY = 'johdus-riHfuj-2hixry';
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-text';
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
 interface GeminiResponse {
   words: string[];
@@ -16,11 +16,25 @@ export async function generatePuzzleTheme(keyword: string): Promise<Theme> {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        prompt: `Generate a word search puzzle theme about "${keyword}". 
-                Return exactly 8 theme words (3-7 letters each) and 
-                one spangram word (8-12 letters) that describes the theme.
-                All words must be related to "${keyword}".`,
-        temperature: 0.7,
+        contents: [{
+          parts: [{
+            text: `You are a word search puzzle generator. Generate a themed word search puzzle about "${keyword}".
+                  Return ONLY a JSON object with exactly 8 theme words (3-7 letters each) and one spangram word (8-11 letters) that describes the theme.
+                  All words must be UPPERCASE and contain only letters A-Z (no spaces or special characters).
+                  The response must be a valid JSON object with this exact structure:
+                  {
+                    "words": ["WORD1", "WORD2", "WORD3", "WORD4", "WORD5", "WORD6", "WORD7", "WORD8"],
+                    "spangram": "SPANGRAM"
+                  }
+                  Do not include any other text, markdown formatting, or explanation in your response.`
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+        },
       }),
     });
 
@@ -28,12 +42,25 @@ export async function generatePuzzleTheme(keyword: string): Promise<Theme> {
       throw new Error('Failed to generate puzzle theme');
     }
 
-    const data: GeminiResponse = await response.json();
+    const data = await response.json();
+    console.log('Raw API response:', data);
+    const generatedContent = data.candidates[0].content.parts[0].text;
+    console.log('Generated content:', generatedContent);
+    
+    // Extract JSON from the response, handling potential markdown formatting
+    const jsonMatch = generatedContent.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log('No JSON match found in response');
+      throw new Error('Invalid response format from Gemini API');
+    }
+    console.log('Extracted JSON:', jsonMatch[0]);
+    const parsedContent: GeminiResponse = JSON.parse(jsonMatch[0]);
+    console.log('Parsed content:', parsedContent);
     
     return {
       name: keyword.charAt(0).toUpperCase() + keyword.slice(1),
-      words: data.words,
-      spangram: data.spangram,
+      words: parsedContent.words,
+      spangram: parsedContent.spangram,
     };
   } catch (error) {
     console.error('Error generating puzzle theme:', error);

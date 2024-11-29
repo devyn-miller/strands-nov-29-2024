@@ -1,7 +1,7 @@
 import { Position, Word, Theme } from '../types/game';
 
-export const GRID_ROWS = 6;
-export const GRID_COLS = 8;
+export const GRID_ROWS = 8;
+export const GRID_COLS = 12;
 
 const DIRECTIONS = [
   [-1, -1], [-1, 0], [-1, 1],

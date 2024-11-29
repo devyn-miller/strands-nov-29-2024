@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Position } from '../types/game';
 import { arePositionsAdjacent } from '../utils/gridUtils';
 
@@ -15,48 +15,36 @@ export function useWordSelection() {
   }, [selectedPositions]);
 
   const handleCellClick = useCallback((position: Position) => {
-    const currentTime = Date.now();
+    setSelectedPositions(prev => {
+      // If clicking an already selected position
+      const existingIndex = prev.findIndex(
+        pos => pos.row === position.row && pos.col === position.col
+      );
 
-    // Handle double-tap submission
-    if (
-      lastTapTime &&
-      lastTapPosition &&
-      position.row === lastTapPosition.row &&
-      position.col === lastTapPosition.col &&
-      currentTime - lastTapTime < 300 &&
-      selectedPositions.length > 0
-    ) {
-      setIsSelecting(false);
-      return {
-        type: 'submit' as const,
-        positions: selectedPositions
-      };
-    }
-
-    // Handle regular tap
-    if (isValidNextPosition(selectedPositions[selectedPositions.length - 1] || position, position)) {
-      setSelectedPositions(prev => {
-        const existingIndex = prev.findIndex(
-          pos => pos.row === position.row && pos.col === position.col
-        );
-        
-        if (existingIndex !== -1) {
-          return prev.slice(0, existingIndex);
+      if (existingIndex !== -1) {
+        // If clicking the last selected position, remove it
+        if (existingIndex === prev.length - 1) {
+          return prev.slice(0, -1);
         }
-        
-        return [...prev, position];
-      });
-      setIsSelecting(true);
-    }
+        // If clicking any other selected position, remove all positions after it
+        return prev.slice(0, existingIndex + 1);
+      }
 
-    setLastTapTime(currentTime);
+      // Don't add if not adjacent to last position (unless it's the first position)
+      if (prev.length > 0 && !arePositionsAdjacent(prev[prev.length - 1], position)) {
+        return prev;
+      }
+
+      return [...prev, position];
+    });
+    setIsSelecting(true);
+    setLastTapTime(Date.now());
     setLastTapPosition(position);
-
     return {
       type: 'select' as const,
       positions: selectedPositions
     };
-  }, [selectedPositions, lastTapTime, lastTapPosition, isValidNextPosition]);
+  }, [selectedPositions, isValidNextPosition]);
 
   const resetSelection = useCallback(() => {
     setSelectedPositions([]);
@@ -65,10 +53,34 @@ export function useWordSelection() {
     setIsSelecting(false);
   }, []);
 
+  const removeLastPosition = useCallback(() => {
+    setSelectedPositions(prev => prev.slice(0, -1));
+  }, []);
+
+  // Handle keyboard events
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && selectedPositions.length >= 3) {
+        // Submit word event will be handled by the parent component
+        const event = new CustomEvent('submitWord', { detail: selectedPositions });
+        window.dispatchEvent(event);
+        resetSelection();
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        removeLastPosition();
+      } else if (e.key === 'Escape') {
+        resetSelection();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedPositions, resetSelection, removeLastPosition]);
+
   return {
     selectedPositions,
     handleCellClick,
     resetSelection,
+    removeLastPosition,
     isSelecting
   };
 }
