@@ -8,6 +8,17 @@ interface GeminiResponse {
   spangram: string;
 }
 
+const generatePrompt = (keyword: string) => `You are a word search puzzle generator. Generate a themed word search puzzle about "${keyword}".
+                  Return ONLY a JSON object with exactly 8 theme words (3-7 letters each) and one spangram word (8-11 letters) that describes the theme.
+                  All words must be UPPERCASE and contain only letters A-Z (no spaces or special characters).
+                  The response must be a valid JSON object with this exact structure:
+                  {
+                    "words": ["WORD1", "WORD2", "WORD3", "WORD4", "WORD5", "WORD6", "WORD7", "WORD8"],
+                    "spangram": "SPANGRAM"
+                  }
+                  Ensure that all letters are used exactly once in the final grid.
+                  Do not include any other text, markdown formatting, or explanation in your response.`;
+
 export async function generatePuzzleTheme(keyword: string): Promise<Theme> {
   try {
     const response = await fetch(`${API_URL}?key=${API_KEY}`, {
@@ -18,15 +29,7 @@ export async function generatePuzzleTheme(keyword: string): Promise<Theme> {
       body: JSON.stringify({
         contents: [{
           parts: [{
-            text: `You are a word search puzzle generator. Generate a themed word search puzzle about "${keyword}".
-                  Return ONLY a JSON object with exactly 8 theme words (3-7 letters each) and one spangram word (8-11 letters) that describes the theme.
-                  All words must be UPPERCASE and contain only letters A-Z (no spaces or special characters).
-                  The response must be a valid JSON object with this exact structure:
-                  {
-                    "words": ["WORD1", "WORD2", "WORD3", "WORD4", "WORD5", "WORD6", "WORD7", "WORD8"],
-                    "spangram": "SPANGRAM"
-                  }
-                  Do not include any other text, markdown formatting, or explanation in your response.`
+            text: generatePrompt(keyword)
           }]
         }],
         generationConfig: {

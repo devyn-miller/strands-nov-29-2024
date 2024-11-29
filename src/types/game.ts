@@ -3,26 +3,31 @@ export interface Position {
   col: number;
 }
 
-export interface Word {
+export interface WordLocation {
   word: string;
-  start: Position;
-  end: Position;
-  found: boolean;
+  positions: Position[];
 }
 
 export interface Theme {
   name: string;
-  words: string[];
+  description: string;
   spangram: string;
+  words: string[];
 }
 
 export interface GameState {
   grid: string[][];
   theme: Theme;
-  themeWords: Word[];
-  spangram: Word | null;
+  themeWords: WordLocation[];
+  spangram: WordLocation | null;
   foundWords: Set<string>;
+  nonThemeWords: Set<string>;
   hints: number;
+  activeHintWord: WordLocation | null;
   isComplete: boolean;
-  activeHintWord: string | null;
+}
+
+export interface WordSelectionState {
+  selectedPositions: Position[];
+  isSelecting: boolean;
 }
