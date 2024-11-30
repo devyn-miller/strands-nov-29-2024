@@ -1,71 +1,60 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Grid } from './components/Grid';
-import { WordList } from './components/WordList';
 import { GameStats } from './components/GameStats';
 import { GameControls } from './components/GameControls';
-import { ThemeSearch } from './components/ThemeSearch';
 import { HintSystem } from './components/HintSystem';
 import { generateGrid, findWordInGrid, getWordFromPositions } from './utils/gridUtils';
-import { updateGameStateWithFoundWord } from './utils/gameUtils';
-import { generatePuzzleTheme } from './services/geminiApi';
-import { Position, GameState } from './types/game';
+import { generateThemeWords, getWordDefinition } from './services/dictionaryApi';
+import { themes } from './utils/themes';
+import { GameState, Theme, Position } from './types/game';
 import { useWordSelection } from './hooks/useWordSelection';
-import { isValidWord } from './utils/wordUtils';
 
 function App() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [highlightedCells, setHighlightedCells] = useState<Set<string>>(new Set());
   const [spangramCells, setSpangramCells] = useState<Set<string>>(new Set());
+  const [input, setInput] = useState('');
   const { selectedPositions, handleCellClick, resetSelection } = useWordSelection();
 
-  const initializeGame = useCallback(async (keyword?: string) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const theme = keyword 
-        ? await generatePuzzleTheme(keyword)
-        : await generatePuzzleTheme('celestial');
-      
-      console.log('Theme received:', theme);
-      const grid = generateGrid(theme);
-      console.log('Grid generated:', grid);
-      const themeWords = theme.words
-        .map(word => findWordInGrid(grid, word))
-        .filter((word): word is NonNullable<typeof word> => word !== null);
-      console.log('Theme words placed:', themeWords);
-      const spangram = findWordInGrid(grid, theme.spangram);
-      console.log('Spangram placed:', spangram);
+  const initializeGame = useCallback(async (themeName: string = 'random') => {
+    let selectedTheme: Theme;
+    if (themeName === 'random') {
+      const randomIndex = Math.floor(Math.random() * themes.length);
+      selectedTheme = themes[randomIndex];
+    } else {
+      selectedTheme = themes.find(t => t.name === themeName) || themes[0];
+    }
 
-      const newGameState = {
-        grid,
-        theme,
-        themeWords,
-        spangram,
-        foundWords: new Set<string>(),
-        hints: 0,
-        isComplete: false,
-        activeHintWord: null,
-        nonThemeWords: new Set<string>()
-      };
-      console.log('New game state:', newGameState);
-      return newGameState;
-    } catch (err) {
-      setError('Failed to generate puzzle. Please try again.');
-      throw err;
-    } finally {
-      setIsLoading(false);
+    return {
+      theme: selectedTheme,
+      foundWords: new Set<string>(),
+      themeWords: selectedTheme.words,
+      spangram: selectedTheme.spangram,
+      grid: generateGrid(selectedTheme),
+      nonThemeWords: new Set<string>(),
+      hints: 3,
+      activeHintWord: null,
+      isComplete: false
+    };
+  }, []);
+
+  // Check if a word exists in the dictionary
+  const isValidWord = useCallback(async (word: string): Promise<boolean> => {
+    try {
+      await getWordDefinition(word);
+      return true;
+    } catch {
+      return false;
     }
   }, []);
 
-  const checkWord = useCallback((positions: Position[]) => {
-    if (!gameState || positions.length < 3) return;
+  const checkWord = useCallback(async (positions: Position[]) => {
+    if (!gameState || positions.length < 4) return;
 
     const word = getWordFromPositions(gameState.grid, positions);
     
     // Check if it's a theme word
-    if (gameState.themeWords.some(w => w.word === word && !gameState.foundWords.has(word))) {
+    if (gameState.themeWords.includes(word) && !gameState.foundWords.has(word)) {
       const newFoundWords = new Set(gameState.foundWords).add(word);
       const newHighlightedCells = new Set(highlightedCells);
       
@@ -74,53 +63,46 @@ function App() {
       setGameState(prev => prev ? ({
         ...prev,
         foundWords: newFoundWords,
-        activeHintWord: null // Clear any active hint when a word is found
+        activeHintWord: null
       }) : null);
       setHighlightedCells(newHighlightedCells);
     } 
     // Check if it's the spangram
-    else if (gameState.spangram && word === gameState.spangram.word) {
+    else if (gameState.spangram && word === gameState.spangram && !gameState.foundWords.has(word)) {
+      const newFoundWords = new Set(gameState.foundWords).add(word);
       const newSpangramCells = new Set<string>();
       positions.forEach(pos => newSpangramCells.add(`${pos.row},${pos.col}`));
       setSpangramCells(newSpangramCells);
+      setGameState(prev => prev ? ({
+        ...prev,
+        foundWords: newFoundWords
+      }) : null);
     }
     // Check if it's a valid non-theme word
-    else if (isValidWord(word) && !gameState.nonThemeWords.has(word)) {
-      setGameState(prev => {
-        if (!prev) return null;
-        const newNonThemeWords = new Set(prev.nonThemeWords).add(word);
-        // Award a hint for every 3 non-theme words found
-        const newHints = Math.floor(newNonThemeWords.size / 3);
-        return {
-          ...prev,
-          nonThemeWords: newNonThemeWords,
-          hints: newHints
-        };
-      });
+    else if (word.length >= 4 && !gameState.foundWords.has(word) && !gameState.nonThemeWords.has(word)) {
+      const isValid = await isValidWord(word);
+      if (isValid) {
+        setGameState(prev => {
+          if (!prev) return null;
+          const newNonThemeWords = new Set(prev.nonThemeWords).add(word);
+          // Award a hint for every 3 non-theme words found
+          const newHints = Math.floor(newNonThemeWords.size / 3);
+          return {
+            ...prev,
+            nonThemeWords: newNonThemeWords,
+            hints: newHints
+          };
+        });
+      }
     }
     
     resetSelection();
-  }, [gameState, highlightedCells, resetSelection]);
-
-  const handleRequestHint = useCallback(() => {
-    if (!gameState || gameState.hints === 0 || gameState.activeHintWord) return;
-
-    // Find a random unfound theme word
-    const unfoundWords = gameState.themeWords.filter(w => !gameState.foundWords.has(w.word));
-    if (unfoundWords.length === 0) return;
-
-    const randomWord = unfoundWords[Math.floor(Math.random() * unfoundWords.length)];
-    
-    setGameState(prev => prev ? ({
-      ...prev,
-      hints: prev.hints - 1,
-      activeHintWord: randomWord
-    }) : null);
-  }, [gameState]);
+    setInput('');
+  }, [gameState, highlightedCells, resetSelection, isValidWord]);
 
   useEffect(() => {
     const handleSubmitWord = (e: CustomEvent<Position[]>) => {
-      checkWord(e.detail);
+      void checkWord(e.detail);
     };
 
     window.addEventListener('submitWord', handleSubmitWord as EventListener);
@@ -131,113 +113,124 @@ function App() {
     initializeGame().then(setGameState);
   }, [initializeGame]);
 
-  const handleSearch = async (keyword: string) => {
-    try {
-      const newGameState = await initializeGame(keyword);
-      setGameState(newGameState);
-      setHighlightedCells(new Set());
-      setSpangramCells(new Set());
-      resetSelection();
-    } catch (err) {
-      console.error('Failed to generate new puzzle:', err);
-    }
+  const handleNewPuzzle = async (themeName?: string) => {
+    const newGameState = await initializeGame(themeName || 'random');
+    setGameState(newGameState);
+    setHighlightedCells(new Set());
+    setSpangramCells(new Set());
+    resetSelection();
+    setInput('');
   };
+
+  const handleGiveUp = useCallback(() => {
+    if (!gameState) return;
+
+    // Reveal all theme words
+    const newHighlightedCells = new Set<string>();
+    const newFoundWords = new Set(gameState.foundWords);
+
+    // Add all theme words to found words
+    gameState.themeWords.forEach(word => {
+      newFoundWords.add(word);
+    });
+
+    setGameState(prev => prev ? ({
+      ...prev,
+      foundWords: newFoundWords,
+      isComplete: true,
+      activeHintWord: null
+    }) : null);
+    setHighlightedCells(newHighlightedCells);
+  }, [gameState]);
+
+  const handleSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedPositions.length > 0) {
+      const event = new CustomEvent('submitWord', { 
+        detail: selectedPositions 
+      });
+      window.dispatchEvent(event);
+    }
+  }, [selectedPositions]);
 
   if (!gameState) return null;
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Word Search</h1>
-          <p className="text-xl text-gray-600 mb-4">Theme: {gameState.theme.name}</p>
-          
-          <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-3">How to Play</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-              <div>
-                <h3 className="font-medium text-gray-700 mb-2">Word Selection:</h3>
-                <ul className="list-disc pl-5 space-y-1 text-gray-600">
-                  <li>Click and drag to select adjacent letters</li>
-                  <li>Letters must be connected horizontally, vertically, or diagonally</li>
-                  <li>Words can be spelled forwards or backwards</li>
-                  <li>Each letter in the grid is used exactly once across all words</li>
-                </ul>
-              </div>
-              
-              <div>
-                <h3 className="font-medium text-gray-700 mb-2">Controls:</h3>
-                <ul className="list-disc pl-5 space-y-1 text-gray-600">
-                  <li><kbd className="px-2 py-1 bg-gray-100 rounded">Enter</kbd> or click Submit to check your word</li>
-                  <li><kbd className="px-2 py-1 bg-gray-100 rounded">Backspace</kbd> to remove the last letter</li>
-                  <li><kbd className="px-2 py-1 bg-gray-100 rounded">Esc</kbd> to clear your selection</li>
-                  <li>Click any selected letter to unselect back to that point</li>
-                </ul>
+    <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
+      <div className="relative py-3 sm:max-w-xl sm:mx-auto">
+        <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-light-blue-500 shadow-lg transform -skew-y-6 sm:skew-y-0 sm:-rotate-6 sm:rounded-3xl"></div>
+        <div className="relative px-4 py-10 bg-white shadow-lg sm:rounded-3xl sm:p-20">
+          <div className="max-w-md mx-auto">
+            <div className="divide-y divide-gray-200">
+              <div className="py-8 text-base leading-6 space-y-4 text-gray-700 sm:text-lg sm:leading-7">
+                <div className="text-center mb-8">
+                  <h1 className="text-3xl font-bold text-gray-900 mb-2">Strands</h1>
+                  <p className="text-gray-500">Find all the words related to today's theme!</p>
+                </div>
+
+                <div className="mb-6">
+                  <select
+                    value={gameState.theme.name}
+                    onChange={(e) => handleNewPuzzle(e.target.value)}
+                    className="w-full px-4 py-2 text-lg font-medium text-gray-700 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    aria-label="Select theme"
+                  >
+                    <option value="random">Random Theme</option>
+                    {themes.map((theme) => (
+                      <option key={theme.name} value={theme.name}>
+                        {theme.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-4">
+                  <Grid
+                    grid={gameState.grid}
+                    selectedPositions={selectedPositions}
+                    onCellClick={handleCellClick}
+                    highlightedCells={highlightedCells}
+                    spangramCells={spangramCells}
+                  />
+                </div>
+
+                <div className="mt-4">
+                  <GameStats
+                    foundWords={gameState.foundWords}
+                    totalWords={gameState.themeWords.length}
+                    theme={gameState.theme}
+                    spangram={gameState.spangram}
+                    nonThemeWords={gameState.nonThemeWords}
+                    hints={gameState.hints}
+                  />
+                </div>
+
+                <div className="mt-4">
+                  <GameControls
+                    onNewPuzzle={handleNewPuzzle}
+                    onResetPuzzle={() => {
+                      if (gameState) {
+                        setHighlightedCells(new Set());
+                        setSpangramCells(new Set());
+                        resetSelection();
+                        setInput('');
+                        setGameState({
+                          ...gameState,
+                          foundWords: new Set(),
+                          nonThemeWords: new Set(),
+                          hints: 3,
+                          isComplete: false
+                        });
+                      }
+                    }}
+                    onGiveUp={handleGiveUp}
+                    isComplete={gameState.isComplete}
+                    gameState={gameState}
+                  />
+                </div>
               </div>
             </div>
-
-            <div className="mt-4 text-left">
-              <h3 className="font-medium text-gray-700 mb-2">Special Words:</h3>
-              <ul className="list-disc pl-5 space-y-1 text-gray-600">
-                <li>Find the special "spangram" word that uses unique letters!</li>
-                <li>All theme words are related to: {gameState.theme.description}</li>
-                <li>Found words will be highlighted on the grid</li>
-              </ul>
-            </div>
           </div>
-        </div>
-
-        <ThemeSearch onSearch={handleSearch} isLoading={isLoading} />
-
-        {error && (
-          <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-lg">
-            {error}
-          </div>
-        )}
-
-        <div className="mb-6">
-          <Grid
-            grid={gameState.grid}
-            selectedPositions={selectedPositions}
-            onCellClick={handleCellClick}
-            highlightedCells={highlightedCells}
-            spangramCells={spangramCells}
-          />
-        </div>
-
-        <div className="mt-6">
-          <WordList
-            theme={gameState.theme}
-            foundWords={gameState.foundWords}
-            spangram={gameState.spangram}
-          />
-        </div>
-
-        <div className="mt-6">
-          <GameStats
-            foundWords={gameState.foundWords}
-            totalWords={gameState.themeWords.length}
-          />
-        </div>
-
-        <div className="mt-6">
-          <GameControls
-            onNewGame={() => handleSearch(gameState.theme.name)}
-            onReset={() => {
-              setHighlightedCells(new Set());
-              setSpangramCells(new Set());
-              resetSelection();
-              setGameState(prev => prev ? {...prev, foundWords: new Set()} : null);
-            }}
-          />
-        </div>
-
-        <div className="mt-6">
-          <HintSystem 
-            gameState={gameState}
-            onRequestHint={handleRequestHint}
-          />
         </div>
       </div>
     </div>

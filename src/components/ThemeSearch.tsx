@@ -6,6 +6,7 @@ interface ThemeSearchProps {
   isLoading: boolean;
 }
 
+// This component is no longer needed and can be deleted
 export function ThemeSearch({ onSearch, isLoading }: ThemeSearchProps) {
   const [keyword, setKeyword] = useState('');
 
