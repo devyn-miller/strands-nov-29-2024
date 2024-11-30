@@ -4,10 +4,9 @@ import { Position } from '../types/game';
 interface ConnectingLineProps {
   positions: Position[];
   cellSize: number;
-  padding: number;
 }
 
-export const ConnectingLine: React.FC<ConnectingLineProps> = ({ positions, cellSize, padding = 0 }) => {
+export const ConnectingLine: React.FC<ConnectingLineProps> = ({ positions, cellSize }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -21,60 +20,57 @@ export const ConnectingLine: React.FC<ConnectingLineProps> = ({ positions, cellS
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Set line style
-    ctx.strokeStyle = '#3b82f6'; // blue-500
+    ctx.strokeStyle = '#4F46E5';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Calculate cell center positions
-    const points = positions.map(pos => ({
-      x: pos.col * cellSize + cellSize / 2 + padding,
-      y: pos.row * cellSize + cellSize / 2 + padding
-    }));
-
-    // Draw connecting line
+    // Start the path
     ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    
-    for (let i = 1; i < points.length; i++) {
-      const xc = (points[i - 1].x + points[i].x) / 2;
-      const yc = (points[i - 1].y + points[i].y) / 2;
+    const firstPos = positions[0];
+    const startX = firstPos.col * cellSize + cellSize / 2;
+    const startY = firstPos.row * cellSize + cellSize / 2;
+    ctx.moveTo(startX, startY);
+
+    // Draw curved lines between points
+    for (let i = 1; i < positions.length; i++) {
+      const prevPos = positions[i - 1];
+      const currentPos = positions[i];
       
-      // Use quadratic curves for smoother lines
-      ctx.quadraticCurveTo(points[i - 1].x, points[i - 1].y, xc, yc);
-    }
-    
-    // Connect to the last point
-    if (points.length > 1) {
-      const last = points[points.length - 1];
-      ctx.lineTo(last.x, last.y);
+      const fromX = prevPos.col * cellSize + cellSize / 2;
+      const fromY = prevPos.row * cellSize + cellSize / 2;
+      const toX = currentPos.col * cellSize + cellSize / 2;
+      const toY = currentPos.row * cellSize + cellSize / 2;
+
+      // Calculate control points for quadratic curve
+      const midX = (fromX + toX) / 2;
+      const midY = (fromY + toY) / 2;
+      const cpX = midX + (Math.random() - 0.5) * 20; // Add slight randomness
+      const cpY = midY + (Math.random() - 0.5) * 20;
+
+      ctx.quadraticCurveTo(cpX, cpY, toX, toY);
     }
     
     ctx.stroke();
 
-    // Draw dots at each point
-    ctx.fillStyle = '#3b82f6';
-    points.forEach(point => {
+    // Draw dots at each position
+    positions.forEach((pos) => {
+      const x = pos.col * cellSize + cellSize / 2;
+      const y = pos.row * cellSize + cellSize / 2;
+      
       ctx.beginPath();
-      ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#4F46E5';
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fill();
     });
-  }, [positions, cellSize, padding]);
-
-  // Calculate canvas dimensions based on grid size
-  const canvasWidth = cellSize * 9 + padding * 2; 
-  const canvasHeight = cellSize * 9 + padding * 2; 
+  }, [positions, cellSize]);
 
   return (
     <canvas
       ref={canvasRef}
-      className="absolute top-0 left-0 pointer-events-none"
-      width={canvasWidth}
-      height={canvasHeight}
-      style={{
-        width: `${canvasWidth}px`,
-        height: `${canvasHeight}px`
-      }}
+      className="absolute top-0 left-0 w-full h-full pointer-events-none"
+      width={cellSize * 8}
+      height={cellSize * 8}
     />
   );
 };
